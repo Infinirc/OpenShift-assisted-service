@@ -1,0 +1,69 @@
+{% set ns = namespace(counter=1) %}
+{% set bmhs = [] %}
+{% if day2|string == "true" %}
+      {% set bmhs = baremetalhosts %}
+{% else %}
+{% if assisted_upgrade_operator|string == "true" %}
+## Use the first baremetalhost to install SNO before upgrading the operator
+      {{ bmhs.append( baremetalhosts[0] ) }}
+{% elif ( assisted_stop_after_agent_discovery|string == "true" ) and ( baremetalhosts|length > 1) %}
+## When operator has already been upgraded, use the other baremetalhost to install SNO after the operator upgrade
+      {{ bmhs.append( baremetalhosts[1] ) }}
+{% else %}
+      {% set bmhs = baremetalhosts %}
+{% endif %}
+{% endif %}
+{% if day2|string != "true" %}
+{% set limit = spoke_controlplane_agents|int + spoke_worker_agents|int %}
+{% endif %}
+{% for host in bmhs %}
+{% if day2|string == "true"  or ns.counter <= limit %}
+
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: '{{ host["name"] }}-bmc-secret'
+  namespace: '{{ spoke_namespace }}'
+type: Opaque
+data:
+  username: '{{ host["driver_info"]["username"] | b64encode }}'
+  password: '{{ host["driver_info"]["password"] | b64encode }}'
+
+---
+apiVersion: metal3.io/v1alpha1
+kind: BareMetalHost
+metadata:
+  name: '{{ host["name"] }}'
+  namespace: '{{ spoke_namespace }}'
+  labels:
+    infraenvs.agent-install.openshift.io: '{{ infraenv_name }}'
+  annotations:
+    bmac.agent-install.openshift.io/hostname: '{{ host["name"] }}'
+    # enable serial console when installing core os
+    # the console output will be logged by libvirt in order to ease debugging
+    bmac.agent-install.openshift.io/installer-args: '["--append-karg", "console=ttyS0"]'
+{% if baremetalhosts_ignition_override|string | length > 0 %}
+    bmac.agent-install.openshift.io/ignition-config-overrides: '{{ baremetalhosts_ignition_override | tojson }}'
+{% endif %}
+{% if day2|string != "true" and ns.counter <= 3 or day2_masters is defined and day2_masters|string == "True" %}
+    bmac.agent-install.openshift.io/role: master
+{% endif %}
+{% set hostname = host["name"] %}
+{% if machine_config_pools is defined and machine_config_pools and hostname in machine_config_pools  %}
+    bmac.agent-install.openshift.io/machine-config-pool: '{{ machine_config_pools[hostname] }}'
+{% endif %}
+{% if node_labels is defined and node_labels and hostname in node_labels %}
+{% for node_key, node_value in node_labels[hostname].items() %}
+    bmac.agent-install.openshift.io.node-label.{{node_key}} : '{{ node_value }}'
+{% endfor %}
+{% endif %}
+spec:
+  online: true
+  bootMACAddress: '{{ host["ports"][0]["address"] }}'
+  bmc:
+    address: '{{ host["driver_info"]["address"] }}'
+    credentialsName: '{{ host["name"] }}-bmc-secret'
+{% endif %}
+{% set ns.counter = ns.counter + 1 %}
+{% endfor %}
