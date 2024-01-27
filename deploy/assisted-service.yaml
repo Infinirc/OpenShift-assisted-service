@@ -1,0 +1,165 @@
+apiVersion: apps/v1 # for versions before 1.9.0 use apps/v1beta2
+kind: Deployment
+metadata:
+  name: assisted-service
+  namespace: REPLACE_NAMESPACE
+spec:
+  selector:
+    matchLabels:
+      app: assisted-service
+  replicas: 3
+  template:
+    metadata:
+      labels:
+        app: assisted-service
+    spec:
+      containers:
+        - name: assisted-service
+          resources:
+            limits:
+              cpu: 500m
+              memory: 2000Mi
+            requests:
+              cpu: 300m
+              memory: 400Mi
+          image: REPLACE_IMAGE
+          imagePullPolicy: Always
+          ports:
+            - containerPort: 8090
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 8090
+            initialDelaySeconds: 30
+          readinessProbe:
+            httpGet:
+              path: /ready
+              port: 8090
+            initialDelaySeconds: 30
+          envFrom:
+            - configMapRef:
+                name: assisted-service-config
+          env:
+            - name: KAFKA_BOOTSTRAP_SERVER
+              value: "ai-kafka-0.ai-kafka-headless.assisted-installer.svc.cluster.local:9092"
+            - name: KAFKA_EVENT_STREAM_TOPIC
+              value: "events-stream"
+            - name: DB_HOST
+              valueFrom:
+                secretKeyRef:
+                  name: assisted-installer-rds
+                  key: db.host
+            - name: DB_NAME
+              valueFrom:
+                secretKeyRef:
+                  name: assisted-installer-rds
+                  key: db.name
+            - name: DB_PASS
+              valueFrom:
+                secretKeyRef:
+                  name: assisted-installer-rds
+                  key: db.password
+            - name: DB_PORT
+              valueFrom:
+                secretKeyRef:
+                  name: assisted-installer-rds
+                  key: db.port
+            - name: DB_USER
+              valueFrom:
+                secretKeyRef:
+                  name: assisted-installer-rds
+                  key: db.user
+            - name: OCM_SERVICE_CLIENT_ID
+              valueFrom:
+                secretKeyRef:
+                  key: ocm-service.clientId
+                  name: assisted-installer-sso
+            - name: OCM_SERVICE_CLIENT_SECRET
+              valueFrom:
+                secretKeyRef:
+                  key: ocm-service.clientSecret
+                  name: assisted-installer-sso
+            - name: AWS_SECRET_ACCESS_KEY
+              valueFrom:
+                secretKeyRef:
+                  key: aws_secret_access_key
+                  name: assisted-installer-s3
+            - name: AWS_ACCESS_KEY_ID
+              valueFrom:
+                secretKeyRef:
+                  key: aws_access_key_id
+                  name: assisted-installer-s3
+            - name: S3_REGION
+              valueFrom:
+                secretKeyRef:
+                  key: aws_region
+                  name: assisted-installer-s3
+            - name: S3_BUCKET
+              valueFrom:
+                secretKeyRef:
+                  key: bucket
+                  name: assisted-installer-s3
+            - name: S3_ENDPOINT_URL
+              valueFrom:
+                secretKeyRef:
+                  key: endpoint
+                  name: assisted-installer-s3
+            - name: EC_PUBLIC_KEY_PEM
+              valueFrom:
+                secretKeyRef:
+                  key: ec-public-key.pem
+                  name: assisted-installer-local-auth-key
+            - name: EC_PRIVATE_KEY_PEM
+              valueFrom:
+                secretKeyRef:
+                  key: ec-private-key.pem
+                  name: assisted-installer-local-auth-key
+            - name: S3_USE_SSL
+              value: "false"
+            - name: LOG_LEVEL
+              value: "debug"
+            - name: LOG_FORMAT
+              value: "text"
+            - name: INSTALL_RH_CA
+              value: "false"
+            - name: REGISTRY_CREDS
+              value: ""
+            - name: NAMESPACE
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.namespace
+            - name: AWS_SHARED_CREDENTIALS_FILE
+              value: /etc/.aws/credentials
+          volumeMounts:
+            - name: route53-creds
+              mountPath: "/etc/.aws"
+              readOnly: true
+            - name: mirror-registry-ca
+              mountPath: "/etc/pki/ca-trust/extracted/pem/mirror_ca.pem"
+              readOnly: true
+              subPath: mirror_ca.pem
+            - name: mirror-registry-conf
+              mountPath: "/etc/containers"
+              readOnly: true
+      serviceAccountName: assisted-service
+      volumes:
+        - name: route53-creds
+          secret:
+            secretName: route53-creds
+            optional: true
+        - name: mirror-registry-ca
+          configMap:
+            name: mirror-registry-ca
+            defaultMode: 420
+            optional: true
+            items:
+              - key: ca-bundle.crt
+                path: mirror_ca.pem
+        - name: mirror-registry-conf
+          configMap:
+            name: mirror-registry-ca
+            defaultMode: 420
+            optional: true
+            items:
+              - key: registries.conf
+                path: registries.conf
