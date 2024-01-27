@@ -1,0 +1,36 @@
+FROM base
+
+ENV VIRTUAL_ENV=/opt/venv
+ENV PATH="$VIRTUAL_ENV/bin:$PATH"
+
+# TODO: Replace with version 0.30.4 once it is released.
+#
+# We need version 5d0a00d of go-swagger because it is the first that contains
+# the change that we need in order to be able to reject unknown JSON fields.
+# That will eventually be part of release 0.30.4, but that doesn't exist yet.
+#
+# For details see the pull request where that capability was added:
+#
+# https://github.com/go-swagger/go-swagger/pull/2863
+#
+# And the ticket:
+#
+# https://issues.redhat.com/browse/MGMT-12697
+COPY --from=quay.io/goswagger/swagger:sha-5d0a00d /usr/bin/swagger /usr/bin/goswagger
+
+COPY --from=registry.k8s.io/kustomize/kustomize:v4.3.0 /app/kustomize /usr/bin/
+
+RUN cd / && /assisted-service/hack/setup_env.sh spectral && \
+    /assisted-service/hack/setup_env.sh jq && \
+    go install github.com/golang/mock/mockgen@v1.5.0 && \
+    go install sigs.k8s.io/controller-tools/cmd/controller-gen@v0.6.2 && \
+    go install golang.org/x/tools/cmd/goimports@v0.1.5 && \
+    chmod 775 -R $GOPATH
+
+RUN curl --retry 5 -L https://github.com/operator-framework/operator-sdk/releases/download/v1.10.1/operator-sdk_linux_amd64 --output /tmp/operator-sdk_linux_amd64 && \
+    chmod +x /tmp/operator-sdk_linux_amd64 && \
+    install /tmp/operator-sdk_linux_amd64 /usr/local/bin/operator-sdk
+
+RUN python3 -m venv ${VIRTUAL_ENV} && \
+    python3 -m pip install --upgrade pip && \
+    python3 -m pip install -r /assisted-service/dev-requirements.txt
