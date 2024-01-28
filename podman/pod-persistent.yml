@@ -3,7 +3,7 @@ kind: Pod
 metadata:
   labels:
     app: assisted-installer
-  name: assisted-installer1
+  name: assisted-installer
 spec:
   containers:
   - args:
@@ -13,6 +13,9 @@ spec:
     envFrom:
     - configMapRef:
         name: config
+    volumeMounts:
+      - mountPath: /var/lib/pgsql
+        name: pg-data
   - image: quay.io/edge-infrastructure/assisted-installer-ui:latest
     name: ui
     ports:
@@ -34,4 +37,14 @@ spec:
     envFrom:
     - configMapRef:
         name: config
+    volumeMounts:
+      - mountPath: /data
+        name: ai-data
   restartPolicy: Never
+  volumes:
+    - name: ai-data
+      persistentVolumeClaim:
+        claimName: ai-service-data
+    - name: pg-data
+      persistentVolumeClaim:
+        claimName: ai-db-data
